@@ -1,5 +1,6 @@
+package net.yqli.zkagent
+
 import org.apache.zookeeper.server.ServerConfig
-import org.apache.zookeeper.server.ZooKeeperServerMain
 import org.apache.zookeeper.server.quorum.QuorumPeerConfig
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -7,25 +8,49 @@ import java.lang.IllegalStateException
 import java.net.ServerSocket
 import java.util.*
 
-class ZkAgent(val zkDataDir: String) {
+/**
+ * ZK Agent
+ */
+class ZkAgent(private val zkDataDir: String) {
 
     companion object {
         val LOGGER : Logger = LoggerFactory.getLogger(ZkAgent.javaClass)
     }
 
-    private var zkServer : ZooKeeperServerMain? = null
+    private var zkServer : ZkServerMain? = null
 
-    fun startZk() {
+    /**
+     * Start the agent.
+     */
+    fun start() {
+        startZk(findAvailablePort().toString())
+    }
+
+    /**
+     * Stop the agent
+     */
+    fun stop() {
+        zkServer?.shutdown()
+    }
+
+    /**
+     * Start the ZK server.
+     *
+     * @port the ZK port.
+     */
+    private fun startZk(port: String) {
         val prop = Properties()
         prop.setProperty("tickTime", "2000")
         prop.setProperty("dataDir", zkDataDir)
+
+        prop.setProperty("clientPort", port)
 
         val quorumConfig = QuorumPeerConfig()
 
         try {
             quorumConfig.parseProperties(prop)
 
-            zkServer = ZooKeeperServerMain()
+            zkServer = ZkServerMain()
 
             val serverConfig = ServerConfig()
             serverConfig.readFrom(quorumConfig)
