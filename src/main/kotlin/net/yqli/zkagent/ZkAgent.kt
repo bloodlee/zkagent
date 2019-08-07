@@ -4,41 +4,95 @@ import org.apache.zookeeper.server.ServerConfig
 import org.apache.zookeeper.server.quorum.QuorumPeerConfig
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import java.lang.IllegalStateException
-import java.net.ServerSocket
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.io.RandomAccessFile
 import java.util.*
+import java.util.concurrent.CountDownLatch
+import kotlin.concurrent.thread
 
 /**
  * ZK Agent
+ *
+ * @param zkDataDir the "dataDir" of zookeeper
+ * @param workingDirPath the working directory of zkAgent and it will be used by ZkAgent to lock the properties file.
  */
-class ZkAgent(private val zkDataDir: String) {
+class ZkAgent(private val zkDataDir: String, private val workingDirPath: String) {
 
     companion object {
-        val LOGGER : Logger = LoggerFactory.getLogger(ZkAgent.javaClass)
-    }
+        val LOGGER : Logger = LoggerFactory.getLogger(ZkAgent::class.java)
+
+        const val ZK_SERVER_PROP_FILE_NAME = "zk_server_info.properties"
+        const val ZK_SERVER_HOST_NAME = "zk_server_host"
+        const val ZK_SERVER_PORT = "zk_server_port"
+   }
 
     private var zkServer : ZkServerMain? = null
 
     /**
      * Start the agent.
+     *
+     * @return the zkServer properties.
      */
-    fun start() {
-        startZk(findAvailablePort().toString())
+    @Synchronized
+    fun start(): ZkServerProp {
+        val workingDir = File(workingDirPath)
+        val propertyFile = File(workingDir, ZK_SERVER_PROP_FILE_NAME)
+        val propFileChannel = RandomAccessFile(propertyFile, "rw").channel
+
+        propFileChannel.use {
+            val propFileLock = propFileChannel.lock()
+
+            propFileLock.use {
+                // when the property file exists, it means zk server was already launched.
+                if (propertyFile.exists() && propertyFile.isFile) {
+                    val zkServerProp = Properties()
+
+                    zkServerProp.load(FileInputStream(propertyFile))
+
+                    return ZkServerProp(zkServerProp.getProperty(ZK_SERVER_HOST_NAME, ""),
+                                        zkServerProp.getProperty(ZK_SERVER_PORT, ""))
+                } else {
+                    val hostName = ZkAgentUtil.getHostName()
+                    val port = ZkAgentUtil.findAvailablePort()
+
+                    val startLatch = CountDownLatch(1)
+
+                    thread {
+                        startZk(port.toString(), startLatch)
+                    }
+
+                    startLatch.await()
+
+                    val prop = Properties()
+                    prop.setProperty(ZK_SERVER_HOST_NAME, hostName)
+                    prop.setProperty(ZK_SERVER_PORT, port.toString())
+
+                    prop.store(FileOutputStream(propertyFile), "")
+
+                    return ZkServerProp(hostName, port.toString())
+                }
+
+            }
+        }
     }
 
     /**
      * Stop the agent
      */
+    @Synchronized
     fun stop() {
-        zkServer?.shutdown()
+        // do something later.
     }
 
     /**
      * Start the ZK server.
      *
-     * @port the ZK port.
+     * @param port the ZK port.
+     * @param startLatch the latch for start.
      */
-    private fun startZk(port: String) {
+    private fun startZk(port: String, startLatch: CountDownLatch) {
         val prop = Properties()
         prop.setProperty("tickTime", "2000")
         prop.setProperty("dataDir", zkDataDir)
@@ -55,30 +109,12 @@ class ZkAgent(private val zkDataDir: String) {
             val serverConfig = ServerConfig()
             serverConfig.readFrom(quorumConfig)
 
-            zkServer?.runFromConfig(serverConfig)
+            zkServer!!.runFromConfig(serverConfig, startLatch)
         } catch (e: Exception) {
             LOGGER.error("Failed to start standalone zk server", e)
         }
 
     }
 
-    /**
-     * Find the available socket port
-     *
-     * @return the port
-     */
-    private fun findAvailablePort() : Int {
-        var socket : ServerSocket? = null
-
-        try {
-            socket = ServerSocket(0)
-            socket.reuseAddress = true
-
-            return socket.localPort
-        } finally {
-            socket?.close()
-        }
-        throw IllegalStateException("Could not find a free TCP/IP port")
-    }
 
 }
