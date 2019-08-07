@@ -1,7 +1,7 @@
 import net.yqli.zkagent.ZkAgent
 
 fun main() {
-    val agent = ZkAgent("\\home\\jali\\zkDataDir2", "/home/jali/zkDataDir2")
+    val agent = ZkAgent("/home/yli/zkDataDir2", "/home/yli/zkDataDir2")
 
     agent.start()
 

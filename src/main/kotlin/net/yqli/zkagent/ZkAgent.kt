@@ -26,6 +26,7 @@ class ZkAgent(private val zkDataDir: String, private val workingDirPath: String)
         const val ZK_SERVER_PROP_FILE_NAME = "zk_server_info.properties"
         const val ZK_SERVER_HOST_NAME = "zk_server_host"
         const val ZK_SERVER_PORT = "zk_server_port"
+        const val LOCK_FILE_NAME = ".lock"
    }
 
     private var zkServer : ZkServerMain? = null
@@ -38,13 +39,19 @@ class ZkAgent(private val zkDataDir: String, private val workingDirPath: String)
     @Synchronized
     fun start(): ZkServerProp {
         val workingDir = File(workingDirPath)
+        val lockFile = File(workingDir, LOCK_FILE_NAME)
+
+        if (!lockFile.exists()) {
+            lockFile.createNewFile()
+        }
+
         val propertyFile = File(workingDir, ZK_SERVER_PROP_FILE_NAME)
-        val propFileChannel = RandomAccessFile(propertyFile, "rw").channel
+        val lockFileChannel = RandomAccessFile(lockFile, "rw").channel
 
-        propFileChannel.use {
-            val propFileLock = propFileChannel.lock()
+        lockFileChannel.use {
+            val lockFileLock = lockFileChannel.lock()
 
-            propFileLock.use {
+            lockFileLock.use {
                 // when the property file exists, it means zk server was already launched.
                 if (propertyFile.exists() && propertyFile.isFile) {
                     val zkServerProp = Properties()
